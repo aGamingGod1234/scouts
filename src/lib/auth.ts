@@ -1,4 +1,5 @@
 import argon2 from "argon2";
+import { createHmac, timingSafeEqual } from "crypto";
 import { ApiKey, Session, User } from "@prisma/client";
 import { db } from "./db";
 import { jsonError } from "./http";
@@ -12,6 +13,39 @@ export type AuthContext = {
 export const SESSION_COOKIE_NAME = "scout_session";
 export const SESSION_TTL_DAYS = 7;
 export const SESSION_TTL_SECONDS = SESSION_TTL_DAYS * 24 * 60 * 60;
+
+function getSessionSecret() {
+  const secret = process.env.SESSION_SECRET ?? process.env.AUTH_SECRET;
+  if (!secret) {
+    throw new Error("Missing server configuration");
+  }
+  return secret;
+}
+
+function safeEqual(a: string, b: string) {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
+
+function signSessionId(sessionId: string) {
+  const secret = getSessionSecret();
+  return createHmac("sha256", secret).update(sessionId).digest("hex");
+}
+
+export function buildSessionCookie(sessionId: string) {
+  const signature = signSessionId(sessionId);
+  return `${sessionId}.${signature}`;
+}
+
+function verifySessionCookie(value: string) {
+  const [sessionId, signature] = value.split(".");
+  if (!sessionId || !signature) return null;
+  const expected = signSessionId(sessionId);
+  if (!safeEqual(signature, expected)) return null;
+  return sessionId;
+}
 
 function getBearerToken(request: Request) {
   const header = request.headers.get("authorization");
@@ -46,8 +80,19 @@ export async function requireAuth(
       return jsonError("UNAUTHORIZED", "Missing credentials", undefined, 401);
     }
 
+    let verifiedSessionId: string | null = null;
+    try {
+      verifiedSessionId = verifySessionCookie(sessionId);
+    } catch (error) {
+      return jsonError("INTERNAL_ERROR", "Missing server configuration", undefined, 500);
+    }
+
+    if (!verifiedSessionId) {
+      return jsonError("UNAUTHORIZED", "Invalid session", undefined, 401);
+    }
+
     const session = await db.session.findUnique({
-      where: { id: sessionId },
+      where: { id: verifiedSessionId },
       include: { user: true }
     });
 
