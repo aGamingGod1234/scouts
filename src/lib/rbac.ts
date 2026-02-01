@@ -19,6 +19,7 @@ export type Resource =
 export type Action = "read" | "write" | "delete";
 
 const rolePermissions: Record<Role, Record<Resource, Action[]>> = {
+  DEV: {} as Record<Resource, Action[]>,
   ADMIN: {} as Record<Resource, Action[]>,
   TEACHER: {
     users: ["read"],
@@ -57,7 +58,7 @@ export function requirePermission(
   resource: Resource,
   action: Action
 ) {
-  if (role === "ADMIN") {
+  if (role === "ADMIN" || role === "DEV") {
     return null;
   }
   const allowed = rolePermissions[role]?.[resource]?.includes(action);

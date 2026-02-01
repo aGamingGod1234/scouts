@@ -55,6 +55,11 @@ export const createUserSchema = z.object({
   score: z.coerce.number().int().min(0).optional()
 });
 
+export const loginSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(8).max(200)
+});
+
 export const updateUserSchema = z.object({
   name: nameSchema.optional(),
   password: z.string().min(8).max(200).optional(),

@@ -32,23 +32,12 @@ interface MutationContext {
     previousPast: unknown;
 }
 
-// Get auth token from storage (adjust based on your auth setup)
-function getAuthToken(): string | null {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem("apiKey") || null;
-}
-
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
-    const token = getAuthToken();
-    if (!token) {
-        throw new Error("Not authenticated");
-    }
-
     const response = await fetch(url, {
         ...options,
+        credentials: "include",
         headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`,
             ...options.headers
         }
     });

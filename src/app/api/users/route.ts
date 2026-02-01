@@ -70,11 +70,12 @@ export async function POST(request: Request) {
   }
 
   const passwordHash = await hashPassword(parsed.data.password);
+  const email = parsed.data.email.trim().toLowerCase();
 
   try {
     const user = await db.user.create({
       data: {
-        email: parsed.data.email,
+        email,
         name: parsed.data.name,
         role: parsed.data.role ?? "STUDENT",
         score: parsed.data.score ?? 0,

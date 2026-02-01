@@ -12,6 +12,16 @@ const roleTargetRules: Record<Role, {
   allowedTypes: EventTargetType[];
   allowedRoles: Role[];
 }> = {
+  DEV: {
+    allowAll: true,
+    allowedTypes: [
+      EventTargetType.USER,
+      EventTargetType.ROLE,
+      EventTargetType.GROUP,
+      EventTargetType.ALL
+    ],
+    allowedRoles: [Role.DEV, Role.ADMIN, Role.TEACHER, Role.STUDENT]
+  },
   ADMIN: {
     allowAll: true,
     allowedTypes: [
@@ -20,7 +30,7 @@ const roleTargetRules: Record<Role, {
       EventTargetType.GROUP,
       EventTargetType.ALL
     ],
-    allowedRoles: [Role.ADMIN, Role.TEACHER, Role.STUDENT]
+    allowedRoles: [Role.DEV, Role.ADMIN, Role.TEACHER, Role.STUDENT]
   },
   TEACHER: {
     allowAll: false,

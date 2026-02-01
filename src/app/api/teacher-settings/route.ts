@@ -33,7 +33,7 @@ export async function GET(request: Request) {
   }
 
   const targetUserId = parsed.data.userId ?? auth.user.id;
-  if (auth.user.role !== "ADMIN" && targetUserId !== auth.user.id) {
+  if (auth.user.role !== "ADMIN" && auth.user.role !== "DEV" && targetUserId !== auth.user.id) {
     return jsonError("FORBIDDEN", "Cannot access other users' settings", undefined, 403);
   }
 
@@ -61,7 +61,7 @@ export async function PUT(request: Request) {
   }
 
   const targetUserId = parsed.data.userId ?? auth.user.id;
-  if (auth.user.role !== "ADMIN" && targetUserId !== auth.user.id) {
+  if (auth.user.role !== "ADMIN" && auth.user.role !== "DEV" && targetUserId !== auth.user.id) {
     return jsonError("FORBIDDEN", "Cannot update other users' settings", undefined, 403);
   }
 

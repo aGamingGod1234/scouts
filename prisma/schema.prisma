@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum Role {
+  DEV
   ADMIN
   TEACHER
   STUDENT
@@ -92,6 +93,7 @@ model User {
   isActive      Boolean           @default(true)
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
+  lastLoginAt   DateTime?
 
   tasksAssigned Task[]            @relation("TaskAssignee")
   tasksCreated  Task[]            @relation("TaskCreator")
@@ -105,9 +107,11 @@ model User {
   teacherSettings TeacherSettings?
   allocations   Allocation[]
   apiKeys       ApiKey[]
+  sessions      Session[]
   auditLogs     AuditLog[]
 
   @@index([score])
+  @@index([email])
 }
 
 model Task {
@@ -245,6 +249,20 @@ model ApiKey {
 
   @@index([userId, revokedAt])
   @@index([keyPrefix])
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  revokedAt  DateTime?
+  userAgent  String?
+  ipHash     String?
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
 }
 
 model Group {

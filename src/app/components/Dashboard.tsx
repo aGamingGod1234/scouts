@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 const roleLabels: Record<string, string> = {
+  DEV: "Dev",
   ADMIN: "Admin",
   TEACHER: "Teacher",
   STUDENT: "Student"
@@ -23,7 +24,7 @@ type MeResponse = {
   id: string;
   email: string;
   name: string;
-  role: "ADMIN" | "TEACHER" | "STUDENT";
+  role: "DEV" | "ADMIN" | "TEACHER" | "STUDENT";
   isActive: boolean;
   groupIds: string[];
 };
@@ -38,7 +39,7 @@ type UserSummary = {
   id: string;
   name: string;
   email: string;
-  role: "ADMIN" | "TEACHER" | "STUDENT";
+  role: "DEV" | "ADMIN" | "TEACHER" | "STUDENT";
 };
 
 type CalendarItem = {
@@ -53,16 +54,12 @@ type CalendarItem = {
   location?: string | null;
 };
 
-async function fetchWithAuth<T>(
-  url: string,
-  apiKey: string,
-  options: RequestInit = {}
-): Promise<T> {
+async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(url, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
       ...options.headers
     }
   });
@@ -99,8 +96,13 @@ function toDateInputValue(date: Date) {
 }
 
 export default function Dashboard() {
-  const [apiKey, setApiKey] = useState("");
-  const [savedKey, setSavedKey] = useState<string | null>(null);
+  const [authState, setAuthState] = useState<"checking" | "authenticated" | "unauthenticated">(
+    "checking"
+  );
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginLoading, setLoginLoading] = useState(false);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [users, setUsers] = useState<UserSummary[]>([]);
@@ -109,6 +111,7 @@ export default function Dashboard() {
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [loadingCalendar, setLoadingCalendar] = useState(false);
   const [loadingTargets, setLoadingTargets] = useState(false);
+  const isAuthenticated = authState === "authenticated";
 
   const today = new Date();
   const [rangeStart, setRangeStart] = useState(toDateInputValue(today));
@@ -133,35 +136,36 @@ export default function Dashboard() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = localStorage.getItem("apiKey");
-    if (stored) {
-      setApiKey(stored);
-      setSavedKey(stored);
-    }
-  }, []);
+  const loadSessionData = async () => {
+    const [meResponse, groupsResponse, usersResponse] = await Promise.all([
+      fetchWithAuth<MeResponse>("/api/me"),
+      fetchWithAuth<Group[]>("/api/groups?limit=100"),
+      fetchWithAuth<UserSummary[]>("/api/users?limit=100")
+    ]);
+
+    setMe(meResponse);
+    setGroups(groupsResponse);
+    setUsers(usersResponse);
+  };
 
   useEffect(() => {
-    if (!savedKey) return;
     let isActive = true;
     setLoadingTargets(true);
     setCalendarError(null);
 
-    Promise.all([
-      fetchWithAuth<MeResponse>("/api/me", savedKey),
-      fetchWithAuth<Group[]>("/api/groups?limit=100", savedKey),
-      fetchWithAuth<UserSummary[]>("/api/users?limit=100", savedKey)
-    ])
-      .then(([meResponse, groupsResponse, usersResponse]) => {
+    loadSessionData()
+      .then(() => {
         if (!isActive) return;
-        setMe(meResponse);
-        setGroups(groupsResponse);
-        setUsers(usersResponse);
+        setAuthState("authenticated");
       })
-      .catch((error) => {
+      .catch(() => {
         if (!isActive) return;
-        setCalendarError(error instanceof Error ? error.message : "Failed to load data.");
+        setAuthState("unauthenticated");
+        setMe(null);
+        setGroups([]);
+        setUsers([]);
+        setCalendarItems([]);
+        setCalendarTotal(0);
       })
       .finally(() => {
         if (!isActive) return;
@@ -171,10 +175,10 @@ export default function Dashboard() {
     return () => {
       isActive = false;
     };
-  }, [savedKey]);
+  }, []);
 
   useEffect(() => {
-    if (!savedKey) return;
+    if (!isAuthenticated) return;
     let isActive = true;
     setLoadingCalendar(true);
     setCalendarError(null);
@@ -183,7 +187,7 @@ export default function Dashboard() {
     const toIso = new Date(`${rangeEnd}T23:59:59`).toISOString();
     const url = `/api/calendar?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}&limit=100`;
 
-    fetchWithAuth<{ items: CalendarItem[]; totalCount: number }>(url, savedKey)
+    fetchWithAuth<{ items: CalendarItem[]; totalCount: number }>(url)
       .then((data) => {
         if (!isActive) return;
         setCalendarItems(data.items);
@@ -201,7 +205,7 @@ export default function Dashboard() {
     return () => {
       isActive = false;
     };
-  }, [savedKey, rangeStart, rangeEnd]);
+  }, [isAuthenticated, rangeStart, rangeEnd]);
 
   const groupedItems = useMemo(() => {
     const entries = calendarItems
@@ -221,7 +225,9 @@ export default function Dashboard() {
 
   const availableRoleTargets = useMemo(() => {
     if (!me) return [] as string[];
-    if (me.role === "ADMIN") return ["ADMIN", "TEACHER", "STUDENT"];
+    if (me.role === "ADMIN" || me.role === "DEV") {
+      return ["DEV", "ADMIN", "TEACHER", "STUDENT"];
+    }
     return ["TEACHER", "STUDENT"];
   }, [me]);
 
@@ -231,15 +237,40 @@ export default function Dashboard() {
     return users.filter((user) => allowedRoles.has(user.role));
   }, [me, users, availableRoleTargets]);
 
-  const canCreateEvents = me?.role === "ADMIN" || me?.role === "TEACHER";
-  const canTargetAll = me?.role === "ADMIN";
+  const canCreateEvents = me?.role === "ADMIN" || me?.role === "DEV" || me?.role === "TEACHER";
+  const canTargetAll = me?.role === "ADMIN" || me?.role === "DEV";
 
-  const handleSaveKey = () => {
-    if (typeof window === "undefined") return;
-    const trimmed = apiKey.trim();
-    if (!trimmed) return;
-    localStorage.setItem("apiKey", trimmed);
-    setSavedKey(trimmed);
+  const handleLogin = async (event: FormEvent) => {
+    event.preventDefault();
+    setLoginError(null);
+    setLoginLoading(true);
+    setAuthState("checking");
+    setLoadingTargets(true);
+    setCalendarError(null);
+
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+      });
+
+      const payload = (await response.json()) as ApiResponse<{ user: MeResponse }>;
+      if (!payload.ok) {
+        throw new Error(payload.error.message);
+      }
+
+      await loadSessionData();
+      setAuthState("authenticated");
+      setLoginPassword("");
+    } catch (error) {
+      setAuthState("unauthenticated");
+      setLoginError(error instanceof Error ? error.message : "Failed to log in.");
+    } finally {
+      setLoginLoading(false);
+      setLoadingTargets(false);
+    }
   };
 
   const handleAddUserTarget = () => {
@@ -266,7 +297,7 @@ export default function Dashboard() {
 
   const handleCreateEvent = async (event: FormEvent) => {
     event.preventDefault();
-    if (!savedKey) return;
+    if (!isAuthenticated) return;
     setCreateError(null);
     setCreateSuccess(null);
 
@@ -285,7 +316,7 @@ export default function Dashboard() {
     }
 
     try {
-      await fetchWithAuth("/api/events", savedKey, {
+      await fetchWithAuth("/api/events", {
         method: "POST",
         body: JSON.stringify({
           title: formState.title,
@@ -317,7 +348,7 @@ export default function Dashboard() {
       const fromIso = new Date(`${rangeStart}T00:00:00`).toISOString();
       const toIso = new Date(`${rangeEnd}T23:59:59`).toISOString();
       const url = `/api/calendar?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}&limit=100`;
-      const data = await fetchWithAuth<{ items: CalendarItem[]; totalCount: number }>(url, savedKey);
+      const data = await fetchWithAuth<{ items: CalendarItem[]; totalCount: number }>(url);
       setCalendarItems(data.items);
       setCalendarTotal(data.totalCount);
     } catch (error) {
@@ -342,27 +373,48 @@ export default function Dashboard() {
             </div>
             <div className="flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-white/70 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
-                API Key
+                Sign in
               </p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  type="password"
-                  placeholder="Paste API key"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-sm shadow-inner focus:border-[var(--accent)] focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={handleSaveKey}
-                  className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[var(--accent-strong)]"
-                >
-                  Save
-                </button>
-              </div>
-              <p className="text-xs text-[var(--muted)]">
-                {savedKey ? "Key stored locally. Calendar is live." : "Store a key to load your calendar."}
-              </p>
+              {isAuthenticated && me ? (
+                <div className="text-xs text-[var(--muted)]">
+                  Signed in as <span className="font-semibold text-[var(--ink)]">{me.email}</span>
+                </div>
+              ) : (
+                <form className="flex flex-col gap-2" onSubmit={handleLogin}>
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    value={loginEmail}
+                    onChange={(event) => setLoginEmail(event.target.value)}
+                    className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-sm shadow-inner focus:border-[var(--accent)] focus:outline-none"
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    value={loginPassword}
+                    onChange={(event) => setLoginPassword(event.target.value)}
+                    className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-sm shadow-inner focus:border-[var(--accent)] focus:outline-none"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[var(--accent-strong)] disabled:opacity-60"
+                    disabled={loginLoading || authState === "checking"}
+                  >
+                    {loginLoading ? "Signing in..." : "Sign in"}
+                  </button>
+                </form>
+              )}
+              {authState === "checking" && (
+                <p className="text-xs text-[var(--muted)]">Checking session...</p>
+              )}
+              {loginError && (
+                <p className="text-xs text-red-600">{loginError}</p>
+              )}
+              {!isAuthenticated && !loginError && authState !== "checking" && (
+                <p className="text-xs text-[var(--muted)]">Use your email and password to continue.</p>
+              )}
             </div>
           </div>
         </header>
@@ -412,19 +464,19 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {!savedKey && (
+              {!isAuthenticated && (
                 <div className="rounded-2xl border border-dashed border-[var(--border)] p-6 text-sm text-[var(--muted)]">
-                  Store an API key to load your calendar.
+                  Sign in to load your calendar.
                 </div>
               )}
 
-              {savedKey && !loadingCalendar && !calendarError && Object.keys(groupedItems).length === 0 && (
+              {isAuthenticated && !loadingCalendar && !calendarError && Object.keys(groupedItems).length === 0 && (
                 <div className="rounded-2xl border border-dashed border-[var(--border)] p-6 text-sm text-[var(--muted)]">
                   No calendar items in this range yet.
                 </div>
               )}
 
-              {savedKey &&
+              {isAuthenticated &&
                 !loadingCalendar &&
                 !calendarError &&
                 Object.entries(groupedItems).map(([dateKey, items]) => (
@@ -482,15 +534,15 @@ export default function Dashboard() {
             <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[0_25px_60px_-45px_rgba(15,14,10,0.8)]">
               <p className="text-xs uppercase tracking-[0.35em] text-[var(--muted)]">Profile</p>
               <h2 className="mt-2 font-display text-2xl">Visibility snapshot</h2>
-              {!savedKey && (
+              {!isAuthenticated && (
                 <p className="mt-3 text-sm text-[var(--muted)]">
-                  Store an API key to load your profile and group assignments.
+                  Sign in to load your profile and group assignments.
                 </p>
               )}
-              {savedKey && loadingTargets && (
+              {isAuthenticated && loadingTargets && (
                 <p className="mt-3 text-sm text-[var(--muted)]">Loading your profile...</p>
               )}
-              {savedKey && !loadingTargets && me && (
+              {isAuthenticated && !loadingTargets && me && (
                 <div className="mt-4 space-y-2 text-sm text-[var(--muted)]">
                   <p>
                     <span className="font-semibold text-[var(--ink)]">{me.name}</span> - {roleLabels[me.role]}
@@ -504,18 +556,18 @@ export default function Dashboard() {
             <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[0_25px_60px_-45px_rgba(15,14,10,0.8)]">
               <p className="text-xs uppercase tracking-[0.35em] text-[var(--muted)]">Create Event</p>
               <h2 className="mt-2 font-display text-2xl">Target the right scouts</h2>
-              {!savedKey && (
+              {!isAuthenticated && (
                 <p className="mt-4 text-sm text-[var(--muted)]">
-                  Store an API key to create events and set targeting rules.
+                  Sign in to create events and set targeting rules.
                 </p>
               )}
-              {savedKey && !canCreateEvents && (
+              {isAuthenticated && !canCreateEvents && (
                 <p className="mt-4 text-sm text-[var(--muted)]">
                   Your role can view events but cannot create or edit them.
                 </p>
               )}
 
-              {savedKey && canCreateEvents && (
+              {isAuthenticated && canCreateEvents && (
                 <form className="mt-4 space-y-4" onSubmit={handleCreateEvent}>
                   <div>
                     <label className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
