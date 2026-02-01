@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+:root {
+  --bg: #f4efe5;
+  --panel: #fdf9f2;
+  --panel-soft: rgba(253, 249, 242, 0.85);
+  --ink: #1e1b16;
+  --ink-soft: rgba(30, 27, 22, 0.08);
+  --muted: #6d665a;
+  --accent: #0f766e;
+  --accent-strong: #0b4a43;
+  --accent-soft: rgba(15, 118, 110, 0.12);
+  --accent-warm: #f97316;
+  --accent-warm-soft: rgba(249, 115, 22, 0.16);
+  --border: #e4dccf;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 45%),
+    radial-gradient(circle at top right, rgba(249, 115, 22, 0.12), transparent 40%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(244, 239, 229, 0.9) 55%, rgba(237, 231, 219, 1) 100%);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-body {
+  font-family: var(--font-body);
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-rise {
+  animation: rise-in 700ms ease-out both;
+}
+
+.animate-fade {
+  animation: fade-in 600ms ease-out both;
+}

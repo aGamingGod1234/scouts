@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  ARCHIVED
+}
+
+enum EventStatus {
+  DRAFT
+  SCHEDULED
+  COMPLETED
+  CANCELED
+}
+
+enum EventCategory {
+  GENERAL
+  CCA
+  PUBLIC_HOLIDAY
+  HOLIDAY_OVERRIDE
+}
+
+enum EventTargetType {
+  USER
+  ROLE
+  GROUP
+  ALL
+}
+
+enum GroupType {
+  PLC
+  KAH
+  PATROL
+  CUSTOM
+}
+
+enum NotificationStatus {
+  UNREAD
+  READ
+}
+
+enum MessageStatus {
+  SENT
+  READ
+  ARCHIVED
+}
+
+enum AllocationStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELED
+}
+
+enum ResourceType {
+  DOCUMENT
+  LINK
+  FILE
+  OTHER
+}
+
+enum NotificationType {
+  TASK
+  EVENT
+  ANNOUNCEMENT
+  MEET
+  MESSAGE
+  SYSTEM
+}
+
+model User {
+  id            String            @id @default(uuid()) @db.Uuid
+  email         String            @unique
+  name          String
+  role          Role              @default(STUDENT)
+  passwordHash  String
+  score         Int               @default(0)
+  isActive      Boolean           @default(true)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  tasksAssigned Task[]            @relation("TaskAssignee")
+  tasksCreated  Task[]            @relation("TaskCreator")
+  eventsCreated  Event[]          @relation("EventCreator")
+  eventTargets  EventTarget[]
+  groupMemberships UserGroup[]
+  notifications Notification[]
+  messagesSent  Message[]         @relation("MessageSender")
+  messagesReceived Message[]      @relation("MessageRecipient")
+  announcements Announcement[]
+  teacherSettings TeacherSettings?
+  allocations   Allocation[]
+  apiKeys       ApiKey[]
+  auditLogs     AuditLog[]
+
+  @@index([score])
+}
+
+model Task {
+  id          String     @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  assigneeId  String?    @db.Uuid
+  assignee    User?      @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  dueDate     DateTime?
+  createdById String?    @db.Uuid
+  createdBy   User?      @relation("TaskCreator", fields: [createdById], references: [id])
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([assigneeId, dueDate, status])
+}
+
+model Event {
+  id          String      @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  status      EventStatus @default(DRAFT)
+  category    EventCategory @default(GENERAL)
+  startsAt    DateTime
+  endsAt      DateTime?
+  location    String?
+  createdById String?     @db.Uuid
+  createdBy   User?       @relation("EventCreator", fields: [createdById], references: [id])
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  targets     EventTarget[]
+
+  @@index([startsAt, status])
+}
+
+model Announcement {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String
+  body        String
+  publishedAt DateTime?
+  createdById String?  @db.Uuid
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Notification {
+  id        String             @id @default(uuid()) @db.Uuid
+  userId    String             @db.Uuid
+  user      User               @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  type      NotificationType   @default(SYSTEM)
+  deeplink  String?
+  status    NotificationStatus @default(UNREAD)
+  readAt    DateTime?
+  createdAt DateTime           @default(now())
+
+  @@index([userId, status, createdAt])
+}
+
+model Message {
+  id          String        @id @default(uuid()) @db.Uuid
+  senderId    String        @db.Uuid
+  sender      User          @relation("MessageSender", fields: [senderId], references: [id])
+  recipientId String        @db.Uuid
+  recipient   User          @relation("MessageRecipient", fields: [recipientId], references: [id])
+  body        String
+  status      MessageStatus @default(SENT)
+  readAt      DateTime?
+  createdAt   DateTime      @default(now())
+
+  @@index([recipientId, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model TeacherSettings {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid
+  user      User     @relation(fields: [userId], references: [id])
+  settings  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Allocation {
+  id         String           @id @default(uuid()) @db.Uuid
+  userId     String           @db.Uuid
+  user       User             @relation(fields: [userId], references: [id])
+  resourceId String           @db.Uuid
+  resource   Resource         @relation(fields: [resourceId], references: [id])
+  startsAt   DateTime
+  endsAt     DateTime?
+  status     AllocationStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@index([userId, startsAt, status])
+}
+
+model Resource {
+  id          String      @id @default(uuid()) @db.Uuid
+  name        String
+  type        ResourceType
+  url         String?
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  allocations Allocation[]
+}
+
+model ApiKey {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id])
+  label      String
+  keyHash    String
+  keyPrefix  String
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([userId, revokedAt])
+  @@index([keyPrefix])
+}
+
+model Group {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String
+  type      GroupType
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  members   UserGroup[]
+  eventTargets EventTarget[]
+
+  @@index([type, name])
+}
+
+model UserGroup {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId   String   @db.Uuid
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, groupId])
+  @@index([userId])
+  @@index([groupId])
+}
+
+model EventTarget {
+  id        String          @id @default(uuid()) @db.Uuid
+  eventId   String          @db.Uuid
+  event     Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  type      EventTargetType
+  userId    String?         @db.Uuid
+  user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  role      Role?
+  groupId   String?         @db.Uuid
+  group     Group?          @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  createdAt DateTime        @default(now())
+
+  @@unique([eventId, type, userId, role, groupId])
+  @@index([eventId])
+  @@index([type, userId])
+  @@index([type, role])
+  @@index([type, groupId])
+}
